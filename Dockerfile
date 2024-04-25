@@ -1,4 +1,4 @@
-FROM openjdk:8u201-alpine
+FROM openjdk:8u202-alpine
 #维护者
 MAINTAINER tuituidan@163.com
 
