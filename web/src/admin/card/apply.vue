@@ -1,26 +1,17 @@
 <template>
   <div class="app-container">
     <el-row type="flex" justify="space-between">
-      <el-form ref="queryForm"
-               @submit.native.prevent :inline="true" label-width="50px">
-        <el-form-item label="分类" prop="category">
-          <category-select ref="refCategory"
-                           style="width: 340px"
-                           v-model="queryParams.category"
-                           load-first
-                           @change="getList"
-                           placeholder="请选择所属分类"></category-select>
-        </el-form-item>
-      </el-form>
+      <div></div>
       <el-row :gutter="10" class="mb8 mt5">
         <el-col :span="1.5">
           <el-button
             type="success"
             plain
             size="small"
-            icon="el-icon-plus"
-            @click="openDialog({category: queryParams.category})"
-          >新增
+            icon="el-icon-edit"
+            v-btn-multiple="selections"
+            @click="handlePass()"
+          >通过
           </el-button>
         </el-col>
         <el-col :span="1.5">
@@ -31,7 +22,7 @@
             icon="el-icon-edit"
             v-btn-single="selections"
             @click="openDialog(selections[0])"
-          >修改
+          >审核
           </el-button>
         </el-col>
         <el-col :span="1.5">
@@ -45,16 +36,6 @@
           >删除
           </el-button>
         </el-col>
-        <el-col :span="1.5">
-          <el-button
-            plain
-            size="small"
-            icon="el-icon-delete"
-            :disabled="dataList.length<2"
-            @click="openSortDialog()"
-          >排序
-          </el-button>
-        </el-col>
       </el-row>
     </el-row>
     <el-table
@@ -62,10 +43,10 @@
       border
       ref="dataTable"
       v-loading="loading"
-      :data="dataList"
+      :data="table.dataList"
       @selection-change="selections = $refs.dataTable.selection">
-      <el-table-column label="序号" type="index" width="55" align="center"/>
-      <el-table-column type="selection" width="50" align="center"/>
+      <el-table-column label="序号" type="index" width="55" align="center" :index="table.index"/>
+      <el-table-column type="selection" width="55" align="center"/>
       <el-table-column label="分类" align="center" prop="categoryName" show-overflow-tooltip/>
       <el-table-column label="图标" align="center" width="80" prop="icon" class-name="narrow-padding">
         <template slot-scope="scope">
@@ -81,21 +62,16 @@
       <el-table-column label="标题" align="center" prop="title" show-overflow-tooltip/>
       <el-table-column label="内容" align="center" prop="content" show-overflow-tooltip/>
       <el-table-column label="链接" align="center" prop="url" show-overflow-tooltip/>
-      <el-table-column label="操作" align="center" width="200" class-name="small-padding fixed-width">
+      <el-table-column label="申请人" align="center" prop="applyBy" show-overflow-tooltip/>
+      <el-table-column label="申请时间" align="center" prop="applyTime" show-overflow-tooltip/>
+      <el-table-column label="操作" align="center" width="140" class-name="small-padding fixed-width">
         <template slot-scope="scope">
-          <el-button
-            size="mini"
-            type="text"
-            icon="el-icon-document-copy"
-            @click="openDialog(scope.row, true)"
-          >复制
-          </el-button>
           <el-button
             size="mini"
             type="text"
             icon="el-icon-edit"
             @click="openDialog(scope.row)"
-          >修改
+          >审核
           </el-button>
           <el-button
             size="mini"
@@ -107,8 +83,14 @@
         </template>
       </el-table-column>
     </el-table>
-    <edit-dialog ref="editDialog" @refresh="getList"></edit-dialog>
-    <sort-dialog ref="sortDialog" @change-sort="changeSort"></sort-dialog>
+    <pagination
+      v-show="table.total>0"
+      :total="table.total"
+      :page.sync="queryParam.pageIndex"
+      :limit.sync="queryParam.pageSize"
+      @pagination="getList"
+    />
+    <edit-dialog ref="editDialog" @refresh="getList" apply></edit-dialog>
   </div>
 </template>
 
@@ -118,7 +100,6 @@ export default {
   components: {
     'edit-dialog': () => import("@/admin/card/dialog/index.vue"),
     'category-select': () => import('@/components/category-select/index.vue'),
-    'sort-dialog': () => import('@/admin/components/sort-dialog'),
   },
   data() {
     return {
@@ -126,47 +107,35 @@ export default {
       loading: true,
       // 选中数组
       selections: [],
-      dataList: [],
       // 查询参数
-      queryParams: {
-        category: ''
+      queryParam: {
+        pageIndex: 1,
+        pageSize: 10,
+        keywords: ''
       },
+      table: {
+        total: 0,
+        index: 1,
+        dataList: []
+      }
     };
   },
   mounted() {
-
+    this.getList();
   },
   methods: {
     getList() {
       this.loading = true;
-      this.$http.get(`/api/v1/category/${this.queryParams.category}/card`).then(res => {
-        this.dataList = res;
+      this.$http.get('/api/v1/apply/cards', {params: this.queryParam}).then(res => {
+        this.table.dataList = res.content;
+        this.table.total = res.totalElements;
+        this.table.index = res.pageable.offset + 1;
         this.loading = false;
+        this.$store.dispatch('user/refreshApplyCount');
       });
     },
-    openDialog(item, isCopy) {
-      if(isCopy){
-        const data = JSON.parse(JSON.stringify(item));
-        data.id = null;
-        data.sort = null;
-        this.$refs.editDialog.open(data);
-        return;
-      }
+    openDialog(item) {
       this.$refs.editDialog.open(item);
-    },
-    openSortDialog() {
-      this.$refs.sortDialog.open(this.dataList, {label: 'title'});
-    },
-    changeSort(draggingData, dropData, type) {
-      const data = {
-        draggingId: draggingData.id,
-        dropId: dropData.id,
-        type: type
-      };
-      this.$http.patch(`/api/v1/category/${this.queryParams.category}/card/actions/sort`, data).then(() => {
-        this.$modal.msgSuccess("排序成功");
-        this.getList();
-      })
     },
     /** 删除按钮操作 */
     handleDelete(row) {
@@ -176,6 +145,16 @@ export default {
       }).then(() => {
         this.getList();
         this.$modal.msgSuccess("删除成功");
+      });
+    },
+    /** 通过按钮操作 */
+    handlePass(row) {
+      const ids = row ? row.id : this.selections.map(item => item.id).join(',');
+      this.$modal.confirm('是否确认审核通过选中的数据项？').then(() => {
+        return this.$http.patch(`/api/v1/card/${ids}/actions/pass_apply`);
+      }).then(() => {
+        this.getList();
+        this.$modal.msgSuccess("审核成功");
       });
     },
   }
